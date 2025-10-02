@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Cesium Moving Icon from JSON Time</title>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.134/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+  <style>
+    html, body, #cesiumContainer {
+      width: 100%; 
+      height: 100%; 
+      margin: 0; 
+      padding: 0; 
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+<div id="cesiumContainer"></div>
+
+<script src="https://cesium.com/downloads/cesiumjs/releases/1.134/Build/Cesium/Cesium.js"></script>
+
+<script type="module">
+document.addEventListener('DOMContentLoaded', async () => {
+  Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhNzZkNmQ1Zi0yNDBlLTQ5ZmQtYWYwMi01YjQ3ZTMxZjAxYjQiLCJpZCI6MzQ2NTAzLCJpYXQiOjE3NTkzODQ3ODZ9.XG2omuBrFBk-T0aqHFdluJOZtWoEAJT1DWsdg0HchXI';
+
+  const viewer = new Cesium.Viewer('cesiumContainer', {
+    terrain: Cesium.Terrain.fromWorldTerrain(),
+  });
+
+  const buildingTileset = await Cesium.createOsmBuildingsAsync();
+  viewer.scene.primitives.add(buildingTileset);
+
+  // Wczytanie JSON z punktami
+  const response = await fetch('path.json');
+  const points = await response.json();
+
+  if (!points.length) return;
+
+  // Wyciągamy czas pierwszego punktu jako bazowy
+  const firstTimeStr = points[0].time;
+  const today = new Date();
+  const startDate = new Date(
+    today.getFullYear(), today.getMonth(), today.getDate(),
+    ...firstTimeStr.split(':').map(Number)
+  );
+  const startJulian = Cesium.JulianDate.fromDate(startDate);
+
+  // Funkcja do przeliczania HH:MM:SS na JulianDate względem startJulian
+  function timeToJulian(timeStr) {
+    const [h, m, s] = timeStr.split(':').map(Number);
+    const date = new Date(
+      today.getFullYear(), today.getMonth(), today.getDate(),
+      h, m, s
+    );
+    return Cesium.JulianDate.fromDate(date);
+  }
+
+  const positionProperty = new Cesium.SampledPositionProperty();
+
+  points.forEach(p => {
+    const time = timeToJulian(p.time);
+    const position = Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude);
+    positionProperty.addSample(time, position);
+  });
+
+const movingIcon = viewer.entities.add({
+  name: "Moving Icon",
+  position: positionProperty,
+  billboard: {
+    image: 'https://upload.wikimedia.org/wikipedia/commons/e/ec/RedDot.svg',
+    verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+    scale: 1.0
+  },
+  path: {
+    show: true,
+    leadTime: 0,            // jak daleko "przed" ikoną (zwykle 0)
+    trailTime: 30,          // czas trwania śladu w sekundach
+    width: 3,               // grubość śladu
+    material: new Cesium.PolylineGlowMaterialProperty({
+      glowPower: 0.3,
+      color: Cesium.Color.RED
+    })
+  }
+});
+
+  // Ustawienie zegara
+  viewer.clock.startTime = startJulian.clone();
+  viewer.clock.currentTime = startJulian.clone();
+  viewer.clock.stopTime = timeToJulian(points[points.length - 1].time);
+  viewer.clock.clockRange = Cesium.ClockRange.CLAMPED;
+  viewer.clock.multiplier = 1;
+  viewer.trackedEntity = movingIcon;
+});
+</script>
+</body>
+</html>
+
